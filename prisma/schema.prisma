@@ -1,0 +1,1286 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===== نظام المصادقة والمستخدمين =====
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String
+  role      UserRole @default(USER)
+  avatar    String?
+  phone     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // علاقات
+  employees       Employee[]
+  orders          Order[]
+  tickets         SupportTicket[]
+  reviews         Review[]
+  addresses       Address[]
+  notifications   Notification[]
+
+  @@map("users")
+}
+
+model Employee {
+  id          String     @id @default(cuid())
+  userId      String     @unique
+  employeeId  String     @unique
+  department  Department
+  position    String
+  salary      Float?
+  hireDate    DateTime   @default(now())
+  isActive    Boolean    @default(true)
+  permissions Json?      // صلاحيات مفصلة
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // علاقات
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shifts       Shift[]
+  attendance   Attendance[]
+  performance  Performance[]
+  tasks        Task[]
+
+  @@map("employees")
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  managerId   String?
+  budget      Float?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  manager     Employee? @relation(fields: [managerId], references: [id])
+  employees   Employee[]
+  categories  Category[]
+
+  @@map("departments")
+}
+
+// ===== نظام المنتجات والعطور =====
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  parentId    String?
+  departmentId String?
+  image       String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  parent      Category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryParent")
+  department  Department? @relation(fields: [departmentId], references: [id])
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  sku         String      @unique
+  categoryId  String
+  price       Float
+  cost        Float?
+  stock       Int         @default(0)
+  minStock    Int         @default(10)
+  maxStock    Int?
+  image       String?
+  images      String[]    // قائمة بالصور
+  brand       String?
+  weight      Float?
+  volume      String?     // حجم العبوة
+  ingredients Json?       // مكونات العطر
+  notes       Json?       // نغمات العطر (top, middle, base)
+  gender      Gender?
+  season      Season[]    // مواسم الاستخدام
+  occasion    Occasion[]  // مناسبات الاستخدام
+  isActive    Boolean     @default(true)
+  isFeatured  Boolean     @default(false)
+  rating      Float       @default(0)
+  reviewCount Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // علاقات
+  category     Category         @relation(fields: [categoryId], references: [id])
+  variants     ProductVariant[]
+  inventory    InventoryItem[]
+  orderItems   OrderItem[]
+  reviews      Review[]
+  recommendations Recommendation[]
+  discounts    Discount[]
+  cartItems    CartItem[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id         String   @id @default(cuid())
+  productId  String
+  name       String   // مثل "50ml", "100ml"
+  sku        String   @unique
+  price      Float
+  stock      Int      @default(0)
+  image      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // علاقات
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_variants")
+}
+
+model InventoryItem {
+  id         String       @id @default(cuid())
+  productId  String
+  warehouseId String
+  quantity   Int
+  reserved   Int          @default(0) // محجوز للطلبات
+  location   String?      // موقع التخزين
+  batch      String?      // رقم الدفعة
+  expiryDate DateTime?
+  condition  Condition    @default(NEW)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  // علاقات
+  product    Product    @relation(fields: [productId], references: [id])
+  warehouse  Warehouse  @relation(fields: [warehouseId], references: [id])
+  movements  InventoryMovement[]
+
+  @@unique([productId, warehouseId, batch])
+  @@map("inventory_items")
+}
+
+model Warehouse {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  address     String
+  managerId   String?
+  capacity    Int?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  manager     Employee?       @relation(fields: [managerId], references: [id])
+  items       InventoryItem[]
+  shipments   Shipment[]
+
+  @@map("warehouses")
+}
+
+// ===== نظام الطلبات والعملاء =====
+model Customer {
+  id          String   @id @default(cuid())
+  name        String
+  email       String?  @unique
+  phone       String?
+  gender      Gender?
+  birthDate   DateTime?
+  preferences Json?    // تفضيلات العطور والمنتجات
+  loyaltyPoints Int    @default(0)
+  tier        LoyaltyTier @default(BRONZE)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  addresses   Address[]
+  orders      Order[]
+  reviews     Review[]
+  tickets     SupportTicket[]
+  cart        Cart?
+
+  @@map("customers")
+}
+
+model Address {
+  id          String    @id @default(cuid())
+  userId      String?
+  customerId  String?
+  type        AddressType @default(HOME)
+  name        String    // اسم المكان
+  street      String
+  city        String
+  state       String?
+  country     String
+  postalCode  String?
+  isDefault   Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // علاقات
+  user        User?     @relation(fields: [userId], references: [id])
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  orders      Order[]
+
+  @@map("addresses")
+}
+
+model Cart {
+  id          String   @id @default(cuid())
+  customerId  String   @unique
+  sessionId   String?  // للزوار غير المسجلين
+  items       Json?    // محتويات السلة المؤقتة
+  total       Float    @default(0)
+  discount    Float    @default(0)
+  tax         Float    @default(0)
+  shipping    Float    @default(0)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  customer    Customer      @relation(fields: [customerId], references: [id])
+  itemsList   CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  productId String
+  variantId String?
+  quantity  Int
+  price     Float
+  discount  Float @default(0)
+  addedAt   DateTime @default(now())
+
+  // علاقات
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id])
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@map("cart_items")
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  orderNumber     String        @unique
+  userId          String?
+  customerId      String?
+  addressId       String?
+  status          OrderStatus   @default(PENDING)
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentMethod   PaymentMethod
+  subtotal        Float
+  discount        Float         @default(0)
+  tax             Float         @default(0)
+  shipping        Float         @default(0)
+  total           Float
+  currency        String        @default("SAR")
+  notes           String?
+  trackingNumber  String?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // علاقات
+  user            User?         @relation(fields: [userId], references: [id])
+  customer        Customer?     @relation(fields: [customerId], references: [id])
+  address         Address?      @relation(fields: [addressId], references: [id])
+  items           OrderItem[]
+  payments        Payment[]
+  shipments       Shipment[]
+  notifications   OrderNotification[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String @id @default(cuid())
+  orderId      String
+  productId    String
+  variantId    String?
+  quantity     Int
+  price        Float
+  discount     Float @default(0)
+  total        Float
+  status       OrderItemStatus @default(CONFIRMED)
+  shippedAt    DateTime?
+  deliveredAt  DateTime?
+
+  // علاقات
+  order        Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product      Product         @relation(fields: [productId], references: [id])
+  variant      ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@map("order_items")
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  orderId         String
+  amount          Float
+  currency        String        @default("SAR")
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  transactionId   String?       @unique
+  gatewayResponse Json?
+  paidAt          DateTime?
+  refundedAt      DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // علاقات
+  order           Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+model Shipment {
+  id              String        @id @default(cuid())
+  orderId         String?
+  warehouseId     String
+  trackingNumber  String        @unique
+  carrier         String
+  status          ShipmentStatus @default(PREPARING)
+  estimatedDelivery DateTime?
+  actualDelivery  DateTime?
+  cost            Float         @default(0)
+  weight          Float?
+  dimensions      Json?         // الأبعاد
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // علاقات
+  order           Order?        @relation(fields: [orderId], references: [id])
+  warehouse       Warehouse     @relation(fields: [warehouseId], references: [id])
+  updates         ShipmentUpdate[]
+
+  @@map("shipments")
+}
+
+model ShipmentUpdate {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  status      ShipmentStatus
+  location    String?
+  notes       String?
+  updatedBy   String?  // معرف الموظف
+  createdAt   DateTime @default(now())
+
+  // علاقات
+  shipment    Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@map("shipment_updates")
+}
+
+// ===== نظام المحاسبة والمالية =====
+model Account {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  name        String
+  type        AccountType
+  category    String?
+  balance     Float      @default(0)
+  isActive    Boolean    @default(true)
+  parentId    String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // علاقات
+  parent      Account?   @relation("AccountParent", fields: [parentId], references: [id])
+  children    Account[]  @relation("AccountParent")
+  transactions Transaction[]
+  budgets     Budget[]
+
+  @@map("accounts")
+}
+
+model Transaction {
+  id          String        @id @default(cuid())
+  accountId   String
+  type        TransactionType
+  amount      Float
+  description String?
+  reference   String?       // مرجع (رقم فاتورة، إيصال، إلخ)
+  date        DateTime
+  category    String?
+  tags        String[]      // وسوم للتصنيف
+  isReconciled Boolean      @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // علاقات
+  account     Account       @relation(fields: [accountId], references: [id])
+  attachments Attachment[]
+
+  @@map("transactions")
+}
+
+model Invoice {
+  id              String      @id @default(cuid())
+  invoiceNumber   String      @unique
+  type            InvoiceType
+  customerId      String?
+  supplierId      String?
+  status          InvoiceStatus @default(DRAFT)
+  issueDate       DateTime
+  dueDate         DateTime
+  subtotal        Float
+  discount        Float       @default(0)
+  tax             Float       @default(0)
+  total           Float
+  paid            Float       @default(0)
+  currency        String      @default("SAR")
+  notes           String?
+  terms           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // علاقات
+  customer        Customer?   @relation("CustomerInvoices", fields: [customerId], references: [id])
+  supplier        Supplier?   @relation("SupplierInvoices", fields: [supplierId], references: [id])
+  items           InvoiceItem[]
+  payments        InvoicePayment[]
+
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id         String @id @default(cuid())
+  invoiceId  String
+  description String
+  quantity   Int
+  unitPrice  Float
+  total      Float
+  accountId  String? // الحساب المحاسبي
+
+  // علاقات
+  invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_items")
+}
+
+model Budget {
+  id          String   @id @default(cuid())
+  accountId   String
+  name        String
+  period      BudgetPeriod
+  startDate   DateTime
+  endDate     DateTime
+  amount      Float
+  spent       Float    @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  account     Account  @relation(fields: [accountId], references: [id])
+
+  @@map("budgets")
+}
+
+// ===== نظام الموردين والتوريد =====
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  contact     String?
+  email       String?
+  phone       String?
+  address     String?
+  taxId       String?
+  paymentTerms String?
+  rating      Float    @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  products    Product[]
+  invoices    Invoice[]     @relation("SupplierInvoices")
+  contracts   Contract[]
+  evaluations SupplierEvaluation[]
+
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id              String        @id @default(cuid())
+  poNumber        String        @unique
+  supplierId      String
+  status          PurchaseStatus @default(DRAFT)
+  orderDate       DateTime      @default(now())
+  expectedDate    DateTime?
+  subtotal        Float
+  discount        Float         @default(0)
+  tax             Float         @default(0)
+  shipping        Float         @default(0)
+  total           Float
+  currency        String        @default("SAR")
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // علاقات
+  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+  items           PurchaseOrderItem[]
+  invoices        Invoice[]
+
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id             String @id @default(cuid())
+  poId           String
+  productId      String?
+  description    String
+  quantity       Int
+  unitPrice      Float
+  total          Float
+  received       Int    @default(0)
+  status         PurchaseItemStatus @default(PENDING)
+
+  // علاقات
+  po             PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  product        Product?      @relation(fields: [productId], references: [id])
+  receipts       PurchaseReceipt[]
+
+  @@map("purchase_order_items")
+}
+
+model PurchaseReceipt {
+  id               String   @id @default(cuid())
+  poItemId         String
+  quantity         Int
+  condition        Condition @default(NEW)
+  location         String?  // موقع التخزين
+  batch            String?  // رقم الدفعة
+  expiryDate       DateTime?
+  receivedBy       String?  // معرف الموظف
+  notes            String?
+  createdAt        DateTime @default(now())
+
+  // علاقات
+  poItem           PurchaseOrderItem @relation(fields: [poItemId], references: [id])
+
+  @@map("purchase_receipts")
+}
+
+// ===== نظام خدمة العملاء =====
+model SupportTicket {
+  id          String        @id @default(cuid())
+  ticketNumber String       @unique
+  userId       String?
+  customerId   String?
+  subject      String
+  description  String
+  priority     Priority      @default(MEDIUM)
+  status       TicketStatus  @default(OPEN)
+  category     String?
+  assignedTo   String?       // معرف الموظف
+  tags         String[]
+  satisfaction Int?          // تقييم الرضا (1-5)
+  resolvedAt   DateTime?
+  closedAt     DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // علاقات
+  user         User?         @relation(fields: [userId], references: [id])
+  customer     Customer?     @relation(fields: [customerId], references: [id])
+  assignedEmployee Employee?  @relation(fields: [assignedTo], references: [id])
+  messages     TicketMessage[]
+  attachments  TicketAttachment[]
+
+  @@map("support_tickets")
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  senderId  String?  // معرف المرسل (مستخدم أو موظف)
+  message   String
+  isInternal Boolean @default(false) // رسالة داخلية للموظفين
+  createdAt DateTime @default(now())
+
+  // علاقات
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@map("ticket_messages")
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  userId      String?
+  customerId  String?
+  productId   String
+  orderId     String?
+  rating      Int      // 1-5 نجوم
+  title       String?
+  comment     String?
+  isVerified  Boolean  @default(false) // تم التحقق من الشراء
+  isPublished Boolean  @default(true)
+  helpful     Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  user        User?     @relation(fields: [userId], references: [id])
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  product     Product   @relation(fields: [productId], references: [id])
+  order       Order?    @relation(fields: [orderId], references: [id])
+
+  @@map("reviews")
+}
+
+// ===== نظام الذكاء الاصطناعي =====
+model Recommendation {
+  id           String   @id @default(cuid())
+  userId       String?
+  customerId   String?
+  productId    String
+  type         RecommendationType
+  score        Float    // درجة التوصية
+  reason       String?  // سبب التوصية
+  isViewed     Boolean  @default(false)
+  isClicked    Boolean  @default(false)
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  // علاقات
+  user         User?     @relation(fields: [userId], references: [id])
+  customer     Customer? @relation(fields: [customerId], references: [id])
+  product      Product   @relation(fields: [productId], references: [id])
+
+  @@map("recommendations")
+}
+
+model UserBehavior {
+  id          String   @id @default(cuid())
+  userId      String?
+  customerId  String?
+  action      String   // نوع الفعالية (view, click, purchase, etc.)
+  targetType  String   // نوع الهدف (product, category, etc.)
+  targetId    String   // معرف الهدف
+  metadata    Json?    // بيانات إضافية
+  timestamp   DateTime @default(now())
+
+  // علاقات
+  user        User?     @relation(fields: [userId], references: [id])
+  customer    Customer? @relation(fields: [customerId], references: [id])
+
+  @@map("user_behavior")
+}
+
+model AIModel {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  type        AIModelType
+  version     String
+  status      ModelStatus @default(TRAINING)
+  accuracy    Float?
+  parameters  Json?    // معاملات النموذج
+  trainedAt   DateTime?
+  deployedAt  DateTime?
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  predictions Prediction[]
+
+  @@map("ai_models")
+}
+
+model Prediction {
+  id        String   @id @default(cuid())
+  modelId   String
+  type      PredictionType
+  input     Json
+  output    Json
+  confidence Float
+  isCorrect Boolean?
+  createdAt DateTime @default(now())
+
+  // علاقات
+  model     AIModel  @relation(fields: [modelId], references: [id])
+
+  @@map("predictions")
+}
+
+// ===== نظام التسويق والحملات =====
+model Campaign {
+  id              String        @id @default(cuid())
+  name            String
+  description     String?
+  type            CampaignType
+  status          CampaignStatus @default(DRAFT)
+  startDate       DateTime?
+  endDate         DateTime?
+  budget          Float
+  spent           Float         @default(0)
+  targetAudience  Json?         // الجمهور المستهدف
+  channels        String[]      // قنوات التسويق
+  metrics         Json?         // مقاييس الأداء
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // علاقات
+  coupons         Coupon[]
+  promotions      Promotion[]
+
+  @@map("campaigns")
+}
+
+model Coupon {
+  id              String      @id @default(cuid())
+  code            String      @unique
+  name            String?
+  description     String?
+  type            CouponType
+  value           Float       // القيمة أو النسبة المئوية
+  minOrderValue   Float?      // الحد الأدنى للطلب
+  maxDiscount     Float?      // الحد الأقصى للخصم
+  usageLimit      Int?        // حد الاستخدام
+  usageCount      Int         @default(0)
+  perUserLimit    Int?        // حد لكل مستخدم
+  startDate       DateTime?
+  endDate         DateTime?
+  isActive        Boolean     @default(true)
+  applicableProducts String[] // المنتجات المشمولة
+  applicableCategories String[] // الفئات المشمولة
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // علاقات
+  campaign        Campaign?   @relation(fields: [campaignId], references: [id])
+  campaignId      String?
+  usages          CouponUsage[]
+
+  @@map("coupons")
+}
+
+model CouponUsage {
+  id        String   @id @default(cuid())
+  couponId  String
+  userId    String?
+  customerId String?
+  orderId   String?
+  usedAt    DateTime @default(now())
+
+  // علاقات
+  coupon    Coupon   @relation(fields: [couponId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id])
+  customer  Customer? @relation(fields: [customerId], references: [id])
+  order     Order?   @relation(fields: [orderId], references: [id])
+
+  @@map("coupon_usages")
+}
+
+model LoyaltyProgram {
+  id              String      @id @default(cuid())
+  name            String
+  description     String?
+  pointsRatio     Float       // نسبة النقاط لكل ريال
+  redemptionRate  Float       // قيمة النقطة عند الاستبدال
+  tiers           Json        // مستويات الولاء
+  benefits        Json        // المزايا
+  isActive        Boolean     @default(true)
+  startDate       DateTime?
+  endDate         DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // علاقات
+  rewards         LoyaltyReward[]
+
+  @@map("loyalty_programs")
+}
+
+model LoyaltyReward {
+  id              String   @id @default(cuid())
+  programId       String
+  name            String
+  description     String?
+  pointsRequired  Int
+  type            RewardType
+  value           Float?   // قيمة المكافأة
+  isActive        Boolean  @default(true)
+  stock           Int?     // المخزون المتاح
+  claimed         Int      @default(0)
+  startDate       DateTime?
+  endDate         DateTime?
+  createdAt       DateTime @default(now())
+
+  // علاقات
+  program         LoyaltyProgram @relation(fields: [programId], references: [id])
+
+  @@map("loyalty_rewards")
+}
+
+// ===== نظام الموارد البشرية =====
+model Shift {
+  id          String   @id @default(cuid())
+  employeeId  String
+  date        DateTime @unique
+  startTime   DateTime
+  endTime     DateTime
+  breakTime   Int      @default(0) // دقائق الراحة
+  status      ShiftStatus @default(SCHEDULED)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  employee    Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("shifts")
+}
+
+model Attendance {
+  id          String   @id @default(cuid())
+  employeeId  String
+  date        DateTime
+  checkIn     DateTime?
+  checkOut    DateTime?
+  hours       Float?   // ساعات العمل الفعلية
+  status      AttendanceStatus @default(PRESENT)
+  notes       String?
+  location    String?  // موقع تسجيل الحضور
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  employee    Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, date])
+  @@map("attendance")
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  assignedTo  String?
+  priority    Priority   @default(MEDIUM)
+  status      TaskStatus @default(TODO)
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // علاقات
+  assignedEmployee Employee? @relation(fields: [assignedTo], references: [id])
+  comments    TaskComment[]
+
+  @@map("tasks")
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  employeeId String
+  comment   String
+  createdAt DateTime @default(now())
+
+  // علاقات
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  employee  Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("task_comments")
+}
+
+model Performance {
+  id          String   @id @default(cuid())
+  employeeId  String
+  period      String   // شهر أو ربع سنة
+  metrics     Json     // مقاييس الأداء
+  goals       Json?    // الأهداف
+  rating      Float?   // تقييم الأداء
+  feedback    String?
+  reviewedBy  String?  // معرف المراجع
+  reviewedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // علاقات
+  employee    Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, period])
+  @@map("performance")
+}
+
+// ===== نظام الإشعارات =====
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String?
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?            // بيانات إضافية
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  expiresAt DateTime?
+  createdAt DateTime         @default(now())
+
+  // علاقات
+  user      User?            @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model OrderNotification {
+  id            String   @id @default(cuid())
+  orderId       String
+  type          String
+  message       String
+  isRead        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  // علاقات
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_notifications")
+}
+
+// ===== نظام المرفقات =====
+model Attachment {
+  id            String      @id @default(cuid())
+  name          String
+  originalName  String
+  mimeType      String
+  size          Int
+  path          String
+  url           String?
+  transactionId String?
+  uploadedBy    String?     // معرف المستخدم الذي رفع الملف
+  createdAt     DateTime    @default(now())
+
+  // علاقات
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+
+  @@map("attachments")
+}
+
+model TicketAttachment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  name      String
+  originalName String
+  mimeType  String
+  size      Int
+  path      String
+  url       String?
+  uploadedBy String? // معرف المستخدم أو الموظف
+  createdAt DateTime @default(now())
+
+  // علاقات
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@map("ticket_attachments")
+}
+
+// ===== نظام مراقبة الأداء =====
+model SystemMetric {
+  id        String   @id @default(cuid())
+  name      String
+  category  String
+  value     Float
+  unit      String?
+  timestamp DateTime @default(now())
+  metadata  Json?
+
+  @@map("system_metrics")
+}
+
+model ErrorLog {
+  id          String   @id @default(cuid())
+  level       String
+  message     String
+  stack       String?
+  url         String?
+  userAgent   String?
+  ip          String?
+  userId      String?
+  resolved    Boolean  @default(false)
+  resolvedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@map("error_logs")
+}
+
+// ===== التعدادات والأنواع =====
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  EMPLOYEE
+  USER
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  UNISEX
+}
+
+enum Season {
+  SPRING
+  SUMMER
+  FALL
+  WINTER
+  ALL_SEASONS
+}
+
+enum Occasion {
+  DAILY
+  WORK
+  PARTY
+  WEDDING
+  SPORT
+  SPECIAL
+}
+
+enum Condition {
+  NEW
+  USED
+  DAMAGED
+  EXPIRED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  DIGITAL_WALLET
+  POINTS
+}
+
+enum OrderItemStatus {
+  CONFIRMED
+  PREPARING
+  READY
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+}
+
+enum ShipmentStatus {
+  PREPARING
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RETURNED
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum TransactionType {
+  DEBIT
+  CREDIT
+}
+
+enum InvoiceType {
+  SALES
+  PURCHASE
+  RETURN
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PurchaseStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum PurchaseItemStatus {
+  PENDING
+  RECEIVED
+  CANCELLED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_FOR_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum RecommendationType {
+  PERSONALIZED
+  TRENDING
+  SIMILAR
+  COMPLEMENTARY
+  SEASONAL
+  OCCASION_BASED
+}
+
+enum AIModelType {
+  RECOMMENDATION
+  PREDICTION
+  CLASSIFICATION
+  CLUSTERING
+}
+
+enum ModelStatus {
+  TRAINING
+  TRAINED
+  DEPLOYED
+  FAILED
+  DEPRECATED
+}
+
+enum PredictionType {
+  SALES_FORECAST
+  DEMAND_PREDICTION
+  CUSTOMER_SEGMENTATION
+  PRICE_OPTIMIZATION
+}
+
+enum CampaignType {
+  EMAIL
+  SMS
+  PUSH_NOTIFICATION
+  SOCIAL_MEDIA
+  INFLUENCER
+  ADS
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_SHIPPING
+  BUY_X_GET_Y
+}
+
+enum LoyaltyTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum RewardType {
+  DISCOUNT
+  FREE_PRODUCT
+  FREE_SHIPPING
+  POINTS_MULTIPLIER
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  ABSENT
+  LEAVE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+  LEAVE
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  ORDER_UPDATE
+  PAYMENT_UPDATE
+  SHIPMENT_UPDATE
+  PROMOTION
+  SYSTEM
+  TICKET_UPDATE
+}
+
+enum AddressType {
+  HOME
+  WORK
+  OTHER
+}
